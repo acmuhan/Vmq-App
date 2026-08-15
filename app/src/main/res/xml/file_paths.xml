@@ -5,23 +5,4 @@
         name="cache"
         path="." />
     
-    <!-- 允许访问应用私有目录 -->
-    <files-path
-        name="files"
-        path="." />
-    
-    <!-- 允许访问外部存储 -->
-    <external-path
-        name="external"
-        path="." />
-    
-    <!-- 允许访问应用专属外部存储 -->
-    <external-files-path
-        name="external_files"
-        path="." />
-    
-    <!-- 允许访问外部缓存目录 -->
-    <external-cache-path
-        name="external_cache"
-        path="." />
 </paths>

@@ -5,6 +5,8 @@
     <!-- Android 11+ 包可见性配置 -->
     <queries>
         <package android:name="com.tencent.mm"/>
+        <package android:name="com.tencent.mobileqq"/>
+        <package android:name="com.tencent.qqlite"/>
         <package android:name="com.eg.android.AlipayGphone"/>
     </queries>
 
@@ -42,9 +44,6 @@
     <uses-permission android:name="android.permission.AUTHENTICATE_ACCOUNTS"/>
     <uses-permission android:name="android.permission.GET_ACCOUNTS"/>
     <uses-permission android:name="android.permission.WRITE_SYNC_ADAPTER"/>
-
-    <!-- JobScheduler 所需权限 -->
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
 
     <!-- 声明相机硬件特性 -->
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
@@ -92,14 +91,6 @@
                 android:launchMode="singleTask"/>
 
 
-        <activity
-                android:name=".ui.SinglePixelActivity"
-                android:configChanges="keyboardHidden|orientation|screenSize|navigation|keyboard"
-                android:excludeFromRecents="true"
-                android:finishOnTaskLaunch="false"
-                android:launchMode="singleInstance"
-                android:theme="@style/AppTheme"/>
-
         <activity android:name="com.google.zxing.activity.CaptureActivity"/>
 
         <!-- FileProvider 用于分享 APK 文件 -->
@@ -138,42 +129,12 @@
                 android:exported="true"
                 android:foregroundServiceType="dataSync"/>
 
-        <service
-                android:name=".service.DaemonService"
-                android:enabled="true"
-                android:exported="true"
-                android:process=":daemon_service"
-                android:foregroundServiceType="dataSync"/>
-
-        <service
-                android:name=".service.CancelNoticeService"
-                android:enabled="true"
-                android:exported="true"
-                android:process=":service"
-                android:foregroundServiceType="dataSync"/>
-
-        <service
-                android:name=".service.PlayerMusicService"
-                android:enabled="true"
-                android:exported="true"
-                android:process=":music_service"/>
-
-        <service
-                android:name=".service.AliveJobService"
-                android:permission="android.permission.BIND_JOB_SERVICE"/>
-
-        <!-- Native 守护服务 -->
-        <service
-                android:name=".service.NativeDaemonService"
-                android:enabled="true"
-                android:exported="true"
-                android:process=":native_daemon"/>
-
         <!-- 同步适配器服务 -->
         <service
                 android:name=".service.SyncAdapterService"
                 android:enabled="true"
                 android:exported="true"
+                android:permission="android.permission.BIND_SYNC_ADAPTER"
                 android:process=":sync_adapter">
             <intent-filter>
                 <action android:name="android.content.SyncAdapter"/>
@@ -186,7 +147,8 @@
         <!-- 账户认证器 -->
         <service
                 android:name=".service.AccountAuthenticatorService"
-                android:exported="true">
+                android:exported="true"
+                android:permission="android.permission.BIND_ACCOUNT_AUTHENTICATOR">
             <intent-filter>
                 <action android:name="android.accounts.AccountAuthenticator"/>
             </intent-filter>

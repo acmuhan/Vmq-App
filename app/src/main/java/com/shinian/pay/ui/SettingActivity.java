@@ -17,11 +17,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import com.shinian.pay.R;
 import com.shinian.pay.manager.AppConstants;
-import com.shinian.pay.receiver.ScreenReceiverUtil;
-import com.shinian.pay.service.DaemonService;
-import com.shinian.pay.service.NativeDaemonService;
-import com.shinian.pay.service.PlayerMusicService;
-import com.shinian.pay.util.ScreenManager;
+import com.shinian.pay.service.ForeService;
 import org.json.JSONObject;
 
 import java.io.*;
@@ -42,10 +38,6 @@ public class SettingActivity extends AppCompatActivity {
     private static final int RESTART_DELAY_CLOSE = 1500; // 关闭时延迟1.5秒
     private static final int HTTP_TIMEOUT = 8000;
 
-    // 动态注册锁屏等广播
-    private ScreenReceiverUtil mScreenListener;
-    // 1 像素 Activity 管理类
-    private ScreenManager mScreenManager;
     private TextView version;
     private int code;
     private String ver;
@@ -58,37 +50,6 @@ public class SettingActivity extends AppCompatActivity {
 
     // 复用 Handler 实例
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-
-    // 使用静态内部类避免内存泄漏
-    private static class ScreenStateListenerImpl implements ScreenReceiverUtil.SreenStateListener {
-        private final ScreenManager mScreenManager;
-
-        ScreenStateListenerImpl(ScreenManager screenManager) {
-            this.mScreenManager = screenManager;
-        }
-
-        @Override
-        public void onSreenOn() {
-            if (mScreenManager != null) {
-                mScreenManager.finishActivity();
-            }
-        }
-
-        @Override
-        public void onSreenOff() {
-            if (mScreenManager != null) {
-                mScreenManager.startActivity();
-            }
-        }
-
-        @Override
-        public void onUserPresent() {
-            // 解锁，暂不用
-        }
-    }
-
-    private ScreenReceiverUtil.SreenStateListener mScreenListenerer;
-
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -131,37 +92,6 @@ public class SettingActivity extends AppCompatActivity {
         }
     }
 
-    private void stopPlayMusicService() {
-        Intent intent = new Intent(this, PlayerMusicService.class);
-        stopService(intent);
-    }
-
-    private void startPlayMusicService() {
-        Intent intent = new Intent(this, PlayerMusicService.class);
-        startService(intent);
-    }
-
-    private void startDaemonService() {
-        Intent intent = new Intent(this, DaemonService.class);
-        startService(intent);
-    }
-
-    /**
-     * 启动 Native 守护服务
-     * 注意：需确保系统允许执行 shell 命令
-     */
-    private void startNativeDaemonService() {
-        try {
-            Intent intent = new Intent(this, NativeDaemonService.class);
-            startService(intent);
-            if (AppConstants.DEBUG) {
-                Log.d(TAG, "Native 守护服务已启动");
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "启动 Native 守护服务失败", e);
-        }
-    }
-    
     /**
      * 启动 Account Sync 保活 (系统级白名单)
      * 效果：系统每 15 分钟自动唤醒应用一次，即使被杀死也能复活
@@ -176,33 +106,6 @@ public class SettingActivity extends AppCompatActivity {
         } catch (Exception e) {
             Log.e(TAG, "启动 Account Sync 失败", e);
         }
-    }
-
-    // 停止 service
-    private void stopDaemonService() {
-        Intent intent = new Intent(this, DaemonService.class);
-        stopService(intent);
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (AppConstants.DEBUG) {
-            Log.d(TAG, "--->onDestroy");
-        }
-
-        // 清理资源
-        if (mScreenListener != null) {
-            try {
-                mScreenListener.stopScreenReceiverListener();
-            } catch (Exception e) {
-                Log.w(TAG, "停止广播接收器失败", e);
-            }
-        }
-
-        mScreenManager = null;
-        mScreenListener = null;
-        mScreenListenerer = null;
     }
 
     private AlertDialog loadingDialog;
@@ -503,25 +406,15 @@ public class SettingActivity extends AppCompatActivity {
 
     // 保活服务
     public void service_start(View v) {
-        // 1. 注册锁屏广播监听器
-        mScreenListener = new ScreenReceiverUtil(this);
-        mScreenManager = ScreenManager.getScreenManagerInstance(this);
-        mScreenListenerer = new ScreenStateListenerImpl(mScreenManager);
-        mScreenListener.setScreenReceiverListener(mScreenListenerer);
+        Intent serviceIntent = new Intent(this, ForeService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
 
-        // 2. 启动前台 Service
-        startDaemonService();
-
-        // 3. 启动播放音乐 Service
-        startPlayMusicService();
-
-        // 4. 启动 Native 守护服务 (高级保活)
-        startNativeDaemonService();
-
-        // 5. 启动 Account Sync 保活 (系统级白名单，推荐!)
         startAccountSync();
-
-        Toast.makeText(this, "服务启动成功!", Toast.LENGTH_SHORT).show();
+        Toast.makeText(this, "前台服务启动成功!", Toast.LENGTH_SHORT).show();
     }
 
     // 屏幕永亮

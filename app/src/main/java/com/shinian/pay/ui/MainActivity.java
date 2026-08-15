@@ -85,6 +85,7 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
     private static final String ALIPAY_PERSON = "https://qr.alipay.com/fkx12542rpb5fljmhxlal35";
 
     private Thread dlThread;
+    private boolean pendingTestNotification;
 
     @Override
     protected void onCreate(Bundle icicle) {
@@ -110,6 +111,8 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
         logs_linear_layout = findViewById(R.id.logs_linear_layout);
         LogsTextView.setOnLongClickListener(this);//长按
         sj_dl = findViewById(R.id.sj_dl);
+
+        requestNotificationPermission(false);
 
         // 设置底部版权信息文本的下划线
         TextView bqTextView = findViewById(R.id.bq);
@@ -696,7 +699,7 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
 
     //QQ群 key：qun.qq.com
     public boolean joinQQGroup(String key) {
-        Intent intent = new Intent();
+        Intent intent = new Intent(Intent.ACTION_VIEW);
         intent.setData(Uri.parse(
                 "mqqopensdkapi://bizAgent/qm/qr?url=http%3A%2F%2Fqm.qq.com%2Fcgi-bin%2Fqm%2Fqr%3Ffrom%3Dapp%26p%3Dandroid%26jump_from%3Dwebapi%26k%3D"
                         + key));
@@ -899,67 +902,7 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
         }
         //分享软件
         else if (itemId == R.id.share) {
-            try {
-                // 尝试获取当前应用的 APK 文件路径（兼容不同厂商）
-                String apkPath = getApplicationInfo().sourceDir;
-                
-                // 如果 sourceDir 为空，尝试使用 packageCodePath
-                if (apkPath == null || apkPath.isEmpty()) {
-                    apkPath = getApplicationContext().getPackageCodePath();
-                }
-                
-                // 检查路径是否有效
-                boolean canShareApk = true;
-                if (apkPath == null || apkPath.isEmpty() || apkPath.contains("null")) {
-                    Log.w(TAG, "APK 路径无效，将使用链接分享：" + apkPath);
-                    canShareApk = false;
-                } else {
-                    File apkFile = new File(apkPath);
-                    // 检查文件是否存在且可读
-                    if (!apkFile.exists() || !apkFile.canRead()) {
-                        Log.w(TAG, "APK 文件不可访问，将使用链接分享：" + apkPath);
-                        canShareApk = false;
-                    } else {
-                        // 尝试分享 APK 文件
-                        try {
-                            // 创建分享意图
-                            Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                            shareIntent.setType("application/vnd.android.package-archive");
-                            
-                            // 使用 FileProvider 分享 APK（Android 7.0+ 要求）
-                            Uri apkUri = FileProvider.getUriForFile(
-                                    this,
-                                    getPackageName() + ".fileprovider",
-                                    apkFile
-                            );
-                            
-                            shareIntent.putExtra(Intent.EXTRA_STREAM, apkUri);
-                            shareIntent.putExtra(Intent.EXTRA_TEXT, 
-                                    getString(R.string.share_content, "https://shinian-a.github.io/"));
-                            shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                            
-                            // 创建选择器并启动
-                            Intent chooser = Intent.createChooser(shareIntent, getString(R.string.share_content));
-                            if (chooser != null) {
-                                startActivity(chooser);
-                                Toast.makeText(this, "请选择分享方式", Toast.LENGTH_SHORT).show();
-                                return true;
-                            }
-                        } catch (Exception apkException) {
-                            Log.e(TAG, "分享 APK 失败，将使用链接分享", apkException);
-                            canShareApk = false;
-                        }
-                    }
-                }
-                
-                // 如果无法分享 APK，则降级为分享下载链接
-                if (!canShareApk) {
-                    shareDownloadLink();
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "分享功能异常", e);
-                Toast.makeText(this, "分享失败，请检查是否安装了社交应用", Toast.LENGTH_SHORT).show();
-            }
+            shareApplication();
             return true;
         }
         //打赏作者
@@ -1112,6 +1055,63 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
         }
     }
 
+    private void shareApplication() {
+        new Thread(() -> {
+            try {
+                if (getApplicationInfo().splitSourceDirs != null
+                        && getApplicationInfo().splitSourceDirs.length > 0) {
+                    throw new IOException("Split APK cannot be shared as one installable file");
+                }
+
+                String apkPath = getApplicationInfo().sourceDir;
+                if (TextUtils.isEmpty(apkPath)) {
+                    apkPath = getPackageCodePath();
+                }
+
+                File sourceApk = new File(apkPath);
+                if (!sourceApk.isFile() || !sourceApk.canRead()) {
+                    throw new IOException("APK file is not readable: " + apkPath);
+                }
+
+                File sharedApk = copyApkToShareCache(sourceApk);
+                Uri apkUri = FileProvider.getUriForFile(
+                        this,
+                        getPackageName() + ".fileprovider",
+                        sharedApk
+                );
+                Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                shareIntent.setType("application/vnd.android.package-archive");
+                shareIntent.putExtra(Intent.EXTRA_STREAM, apkUri);
+                shareIntent.putExtra(
+                        Intent.EXTRA_TEXT,
+                        getString(R.string.share_content, "https://shinian-a.github.io/")
+                );
+                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                Intent chooser = Intent.createChooser(shareIntent, getString(R.string.share_content));
+                runOnUiThread(() -> {
+                    startActivity(chooser);
+                    Toast.makeText(this, "请选择分享方式", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "无法分享可安装 APK，将使用下载链接", e);
+                runOnUiThread(this::shareDownloadLink);
+            }
+        }, "apk-share").start();
+    }
+
+    private File copyApkToShareCache(File sourceApk) throws IOException {
+        File sharedApk = new File(getCacheDir(), "Vmq-App-" + getAppVersionName() + ".apk");
+        try (InputStream input = new FileInputStream(sourceApk);
+             OutputStream output = new FileOutputStream(sharedApk)) {
+            byte[] buffer = new byte[8192];
+            int bytesRead;
+            while ((bytesRead = input.read(buffer)) != -1) {
+                output.write(buffer, 0, bytesRead);
+            }
+        }
+        return sharedApk;
+    }
+
     /**
      * 支付宝支付 打赏功能
      *
@@ -1244,17 +1244,17 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
      * 判断 用户是否安装QQ客户端
      */
     public boolean isQQClientAvailable(Context context) {
-        final PackageManager packageManager = context.getPackageManager();
-        List<PackageInfo> pinfo = packageManager.getInstalledPackages(0);
-        if (pinfo != null) {
-            for (int i = 0; i < pinfo.size(); i++) {
-                String pn = pinfo.get(i).packageName;
-                if (pn.equalsIgnoreCase("com.tencent.qqlite") || pn.equalsIgnoreCase("com.tencent.mobileqq")) {
-                    return true;
-                }
-            }
+        return isPackageInstalled(context, "com.tencent.mobileqq")
+                || isPackageInstalled(context, "com.tencent.qqlite");
+    }
+
+    private boolean isPackageInstalled(Context context, String packageName) {
+        try {
+            context.getPackageManager().getPackageInfo(packageName, 0);
+            return true;
+        } catch (PackageManager.NameNotFoundException e) {
+            return false;
         }
-        return false;
     }
 
     /**
@@ -1524,6 +1524,13 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
      * @param v 触发视图
      */
     public void checkPush(View v) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+                && ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                != PackageManager.PERMISSION_GRANTED) {
+            requestNotificationPermission(true);
+            return;
+        }
+
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
         if (notificationManager == null) {
@@ -1546,6 +1553,24 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
         
         // 注意：不要在这里直接发送日志，等待 NotificationListenerService 回调处理
         // 避免日志重复显示
+    }
+
+    private void requestNotificationPermission(boolean sendTestAfterGrant) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                == PackageManager.PERMISSION_GRANTED) {
+            if (sendTestAfterGrant) {
+                checkPush(null);
+            }
+            return;
+        }
+
+        pendingTestNotification = sendTestAfterGrant;
+        ActivityCompat.requestPermissions(
+                this,
+                new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                AppConstants.REQ_PERM_NOTIFICATIONS
+        );
     }
 
     /**
@@ -1836,7 +1861,35 @@ public class MainActivity extends AppCompatActivity implements OnLongClickListen
                     Toast.makeText(MainActivity.this, "请至权限中心打开本应用的文件读写权限", Toast.LENGTH_LONG).show();
                 }
                 break;
+            case AppConstants.REQ_PERM_NOTIFICATIONS:
+                boolean granted = grantResults.length > 0
+                        && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+                boolean sendPendingTest = pendingTestNotification;
+                pendingTestNotification = false;
+                if (granted && sendPendingTest) {
+                    checkPush(null);
+                } else if (!granted) {
+                    if (sendPendingTest) {
+                        showNotificationSettingsDialog();
+                    } else {
+                        Toast.makeText(this, "通知权限未开启，服务状态通知将不会显示", Toast.LENGTH_LONG).show();
+                    }
+                }
+                break;
         }
+    }
+
+    private void showNotificationSettingsDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle("需要通知权限")
+                .setMessage("请在系统设置中允许通知，以显示服务状态和测试通知。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("前往设置", (dialog, which) -> {
+                    Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                    intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                    startActivity(intent);
+                })
+                .show();
     }
 
     //获取当前程序版本号
